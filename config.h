@@ -75,6 +75,9 @@ int git_config_err_fn(enum config_event_t type, size_t begin_offset,
 		      void *event_fn_data);
 int git_default_config(const char *, const char *,
 		       const struct config_context *, void *);
+int git_default_core_config(const char *, const char *,
+			    const struct config_context *, void *);
+
 /**
  * Read a specific file in git-config format.
  * This function takes the same callback and data parameters as `git_config`.

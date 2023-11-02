@@ -301,7 +301,7 @@ test_expect_success 'binary files cannot be merged' '
 '
 
 test_expect_success 'binary files cannot be merged with --object-id' '
-	cp "$TEST_DIRECTORY"/test-binary-1.png . &&
+	cp "$TEST_DIRECTORY"/lib-diff/test-binary-1.png . &&
 	git add orig.txt new1.txt test-binary-1.png &&
 	test_must_fail git merge-file --object-id \
 		:orig.txt :test-binary-1.png :new1.txt 2> merge.err &&

@@ -19,6 +19,7 @@
 #include "tree.h"
 #include "config.h"
 #include "strvec.h"
+#include "bulk-checkin.h"
 
 static int line_termination = '\n';
 
@@ -415,6 +416,7 @@ struct merge_tree_options {
 	int show_messages;
 	int name_only;
 	int use_stdin;
+	int write_pack;
 	struct merge_options merge_options;
 };
 
@@ -441,6 +443,7 @@ static int real_merge(struct merge_tree_options *o,
 				 _("not something we can merge"));
 
 	opt.show_rename_progress = 0;
+	opt.write_pack = o->write_pack;
 
 	opt.branch1 = branch1;
 	opt.branch2 = branch2;
@@ -553,6 +556,8 @@ int cmd_merge_tree(int argc, const char **argv, const char *prefix)
 			   N_("specify a merge-base for the merge")),
 		OPT_STRVEC('X', "strategy-option", &xopts, N_("option=value"),
 			N_("option for selected merge strategy")),
+		OPT_BOOL(0, "write-pack", &o.write_pack,
+			 N_("write new objects to a pack instead of as loose")),
 		OPT_END()
 	};
 

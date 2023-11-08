@@ -140,8 +140,99 @@ static int already_written(struct bulk_checkin_packfile *state, struct object_id
 	return 0;
 }
 
+struct bulk_checkin_source {
+	off_t (*read)(struct bulk_checkin_source *, void *, size_t);
+	off_t (*seek)(struct bulk_checkin_source *, off_t);
+
+	union {
+		struct {
+			int fd;
+		} from_fd;
+		struct {
+			const void *buf;
+			size_t nr_read;
+		} incore;
+	} data;
+
+	size_t size;
+	const char *path;
+};
+
+static off_t bulk_checkin_source_read_from_fd(struct bulk_checkin_source *source,
+					      void *buf, size_t nr)
+{
+	return read_in_full(source->data.from_fd.fd, buf, nr);
+}
+
+static off_t bulk_checkin_source_seek_from_fd(struct bulk_checkin_source *source,
+					      off_t offset)
+{
+	return lseek(source->data.from_fd.fd, offset, SEEK_SET);
+}
+
+static off_t bulk_checkin_source_read_incore(struct bulk_checkin_source *source,
+					     void *buf, size_t nr)
+{
+	const unsigned char *src = source->data.incore.buf;
+
+	if (source->data.incore.nr_read > source->size)
+		BUG("read beyond bulk-checkin source buffer end "
+		    "(%"PRIuMAX" > %"PRIuMAX")",
+		    (uintmax_t)source->data.incore.nr_read,
+		    (uintmax_t)source->size);
+
+	if (nr > source->size - source->data.incore.nr_read)
+		nr = source->size - source->data.incore.nr_read;
+
+	src += source->data.incore.nr_read;
+
+	memcpy(buf, src, nr);
+	source->data.incore.nr_read += nr;
+	return nr;
+}
+
+static off_t bulk_checkin_source_seek_incore(struct bulk_checkin_source *source,
+					     off_t offset)
+{
+	if (!(0 <= offset && offset < source->size))
+		return (off_t)-1;
+	source->data.incore.nr_read = offset;
+	return source->data.incore.nr_read;
+}
+
+static void init_bulk_checkin_source_from_fd(struct bulk_checkin_source *source,
+					     int fd, size_t size,
+					     const char *path)
+{
+	memset(source, 0, sizeof(struct bulk_checkin_source));
+
+	source->read = bulk_checkin_source_read_from_fd;
+	source->seek = bulk_checkin_source_seek_from_fd;
+
+	source->data.from_fd.fd = fd;
+
+	source->size = size;
+	source->path = path;
+}
+
+static void init_bulk_checkin_source_incore(struct bulk_checkin_source *source,
+					    const void *buf, size_t size,
+					    const char *path)
+{
+	memset(source, 0, sizeof(struct bulk_checkin_source));
+
+	source->read = bulk_checkin_source_read_incore;
+	source->seek = bulk_checkin_source_seek_incore;
+
+	source->data.incore.buf = buf;
+	source->data.incore.nr_read = 0;
+
+	source->size = size;
+	source->path = path;
+}
+
 /*
- * Read the contents from fd for size bytes, streaming it to the
+ * Read the contents from 'source' for 'size' bytes, streaming it to the
  * packfile in state while updating the hash in ctx. Signal a failure
  * by returning a negative value when the resulting pack would exceed
  * the pack size limit and this is not the first object in the pack,
@@ -155,10 +246,10 @@ static int already_written(struct bulk_checkin_packfile *state, struct object_id
  * status before calling us just in case we ask it to call us again
  * with a new pack.
  */
-static int stream_blob_to_pack(struct bulk_checkin_packfile *state,
-			       git_hash_ctx *ctx, off_t *already_hashed_to,
-			       int fd, size_t size, const char *path,
-			       unsigned flags)
+static int stream_obj_to_pack(struct bulk_checkin_packfile *state,
+			      git_hash_ctx *ctx, off_t *already_hashed_to,
+			      struct bulk_checkin_source *source,
+			      enum object_type type, unsigned flags)
 {
 	git_zstream s;
 	unsigned char ibuf[16384];
@@ -167,22 +258,26 @@ static int stream_blob_to_pack(struct bulk_checkin_packfile *state,
 	int status = Z_OK;
 	int write_object = (flags & HASH_WRITE_OBJECT);
 	off_t offset = 0;
+	size_t size = source->size;
 
 	git_deflate_init(&s, pack_compression_level);
 
-	hdrlen = encode_in_pack_object_header(obuf, sizeof(obuf), OBJ_BLOB, size);
+	hdrlen = encode_in_pack_object_header(obuf, sizeof(obuf), type, size);
 	s.next_out = obuf + hdrlen;
 	s.avail_out = sizeof(obuf) - hdrlen;
 
 	while (status != Z_STREAM_END) {
 		if (size && !s.avail_in) {
 			ssize_t rsize = size < sizeof(ibuf) ? size : sizeof(ibuf);
-			ssize_t read_result = read_in_full(fd, ibuf, rsize);
+			ssize_t read_result;
+
+			read_result = source->read(source, ibuf, rsize);
 			if (read_result < 0)
-				die_errno("failed to read from '%s'", path);
+				die_errno("failed to read from '%s'",
+					  source->path);
 			if (read_result != rsize)
 				die("failed to read %d bytes from '%s'",
-				    (int)rsize, path);
+				    (int)rsize, source->path);
 			offset += rsize;
 			if (*already_hashed_to < offset) {
 				size_t hsize = offset - *already_hashed_to;
@@ -247,24 +342,23 @@ static void prepare_to_stream(struct bulk_checkin_packfile *state,
 		die_errno("unable to write pack header");
 }
 
-static int deflate_blob_to_pack(struct bulk_checkin_packfile *state,
-				struct object_id *result_oid,
-				int fd, size_t size,
-				const char *path, unsigned flags)
+
+static int deflate_obj_to_pack(struct bulk_checkin_packfile *state,
+			       struct object_id *result_oid,
+			       struct bulk_checkin_source *source,
+			       enum object_type type,
+			       off_t seekback,
+			       unsigned flags)
 {
-	off_t seekback, already_hashed_to;
+	off_t already_hashed_to = 0;
 	git_hash_ctx ctx;
 	unsigned char obuf[16384];
 	unsigned header_len;
 	struct hashfile_checkpoint checkpoint = {0};
 	struct pack_idx_entry *idx = NULL;
 
-	seekback = lseek(fd, 0, SEEK_CUR);
-	if (seekback == (off_t) -1)
-		return error("cannot find the current offset");
-
-	header_len = format_object_header((char *)obuf, sizeof(obuf),
-					  OBJ_BLOB, size);
+	header_len = format_object_header((char *)obuf, sizeof(obuf), type,
+					  source->size);
 	the_hash_algo->init_fn(&ctx);
 	the_hash_algo->update_fn(&ctx, obuf, header_len);
 	the_hash_algo->init_fn(&checkpoint.ctx);
@@ -273,8 +367,6 @@ static int deflate_blob_to_pack(struct bulk_checkin_packfile *state,
 	if ((flags & HASH_WRITE_OBJECT) != 0)
 		CALLOC_ARRAY(idx, 1);
 
-	already_hashed_to = 0;
-
 	while (1) {
 		prepare_to_stream(state, flags);
 		if (idx) {
@@ -282,8 +374,8 @@ static int deflate_blob_to_pack(struct bulk_checkin_packfile *state,
 			idx->offset = state->offset;
 			crc32_begin(state->f);
 		}
-		if (!stream_blob_to_pack(state, &ctx, &already_hashed_to,
-					 fd, size, path, flags))
+		if (!stream_obj_to_pack(state, &ctx, &already_hashed_to,
+					source, type, flags))
 			break;
 		/*
 		 * Writing this object to the current pack will make
@@ -295,7 +387,7 @@ static int deflate_blob_to_pack(struct bulk_checkin_packfile *state,
 		hashfile_truncate(state->f, &checkpoint);
 		state->offset = checkpoint.offset;
 		flush_bulk_checkin_packfile(state);
-		if (lseek(fd, seekback, SEEK_SET) == (off_t) -1)
+		if (source->seek(source, seekback) == (off_t)-1)
 			return error("cannot seek back");
 	}
 	the_hash_algo->final_oid_fn(result_oid, &ctx);
@@ -315,6 +407,37 @@ static int deflate_blob_to_pack(struct bulk_checkin_packfile *state,
 		state->written[state->nr_written++] = idx;
 	}
 	return 0;
+}
+
+static int deflate_obj_to_pack_incore(struct bulk_checkin_packfile *state,
+				       struct object_id *result_oid,
+				       const void *buf, size_t size,
+				       const char *path, enum object_type type,
+				       unsigned flags)
+{
+	struct bulk_checkin_source source;
+
+	init_bulk_checkin_source_incore(&source, buf, size, path);
+
+	return deflate_obj_to_pack(state, result_oid, &source, type, 0, flags);
+}
+
+static int deflate_blob_to_pack(struct bulk_checkin_packfile *state,
+				struct object_id *result_oid,
+				int fd, size_t size,
+				const char *path, unsigned flags)
+{
+	struct bulk_checkin_source source;
+	off_t seekback;
+
+	init_bulk_checkin_source_from_fd(&source, fd, size, path);
+
+	seekback = lseek(fd, 0, SEEK_CUR);
+	if (seekback == (off_t) -1)
+		return error("cannot find the current offset");
+
+	return deflate_obj_to_pack(state, result_oid, &source, OBJ_BLOB,
+				   seekback, flags);
 }
 
 void prepare_loose_object_bulk_checkin(void)
@@ -356,6 +479,30 @@ int index_blob_bulk_checkin(struct object_id *oid,
 {
 	int status = deflate_blob_to_pack(&bulk_checkin_packfile, oid, fd, size,
 					  path, flags);
+	if (!odb_transaction_nesting)
+		flush_bulk_checkin_packfile(&bulk_checkin_packfile);
+	return status;
+}
+
+int index_blob_bulk_checkin_incore(struct object_id *oid,
+				   const void *buf, size_t size,
+				   const char *path, unsigned flags)
+{
+	int status = deflate_obj_to_pack_incore(&bulk_checkin_packfile, oid,
+						buf, size, path, OBJ_BLOB,
+						flags);
+	if (!odb_transaction_nesting)
+		flush_bulk_checkin_packfile(&bulk_checkin_packfile);
+	return status;
+}
+
+int index_tree_bulk_checkin_incore(struct object_id *oid,
+				   const void *buf, size_t size,
+				   const char *path, unsigned flags)
+{
+	int status = deflate_obj_to_pack_incore(&bulk_checkin_packfile, oid,
+						buf, size, path, OBJ_TREE,
+						flags);
 	if (!odb_transaction_nesting)
 		flush_bulk_checkin_packfile(&bulk_checkin_packfile);
 	return status;

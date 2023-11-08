@@ -58,6 +58,7 @@ int cmd_ls_remote(int argc, const char **argv, const char *prefix)
 	struct transport *transport;
 	const struct ref *ref;
 	struct ref_array ref_array;
+	struct ref_sorting *sorting;
 	struct string_list sorting_options = STRING_LIST_INIT_DUP;
 
 	struct option options[] = {
@@ -141,13 +142,8 @@ int cmd_ls_remote(int argc, const char **argv, const char *prefix)
 		item->symref = xstrdup_or_null(ref->symref);
 	}
 
-	if (sorting_options.nr) {
-		struct ref_sorting *sorting;
-
-		sorting = ref_sorting_options(&sorting_options);
-		ref_array_sort(sorting, &ref_array);
-		ref_sorting_release(sorting);
-	}
+	sorting = ref_sorting_options(&sorting_options);
+	ref_array_sort(sorting, &ref_array);
 
 	for (i = 0; i < ref_array.nr; i++) {
 		const struct ref_array_item *ref = ref_array.items[i];

@@ -33,13 +33,13 @@ Date:   Mon Jun 26 00:04:00 2006 +0000
 
     Merge branch 'side'
 
-commit c7a2ab9e8eac7b117442a607d5a9b3950ae34d5a (refs/heads/side)
+commit c7a2ab9e8eac7b117442a607d5a9b3950ae34d5a (FETCH_HEAD, refs/heads/side)
 Author: A U Thor <author@example.com>
 Date:   Mon Jun 26 00:03:00 2006 +0000
 
     Side
 
-commit 9a6d4949b6b76956d9d5e26f2791ec2ceff5fdc0
+commit 9a6d4949b6b76956d9d5e26f2791ec2ceff5fdc0 (ORIG_HEAD)
 Author: A U Thor <author@example.com>
 Date:   Mon Jun 26 00:02:00 2006 +0000
 

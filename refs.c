@@ -65,6 +65,21 @@ static unsigned char refname_disposition[256] = {
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 4, 4
 };
 
+/*
+ * List of documented pseudorefs. This needs to be kept in sync with the list
+ * in Documentation/revisions.txt.
+ */
+static const char *const pseudorefs[] = {
+	"FETCH_HEAD",
+	"ORIG_HEAD",
+	"MERGE_HEAD",
+	"REBASE_HEAD",
+	"CHERRY_PICK_HEAD",
+	"REVERT_HEAD",
+	"BISECT_HEAD",
+	"AUTO_MERGE",
+};
+
 struct ref_namespace_info ref_namespace[] = {
 	[NAMESPACE_HEAD] = {
 		.ref = "HEAD",
@@ -550,13 +565,16 @@ void normalize_glob_ref(struct string_list_item *item, const char *prefix,
 
 	if (prefix)
 		strbuf_addstr(&normalized_pattern, prefix);
-	else if (!starts_with(pattern, "refs/") &&
-		   strcmp(pattern, "HEAD"))
-		strbuf_addstr(&normalized_pattern, "refs/");
-	/*
-	 * NEEDSWORK: Special case other symrefs such as REBASE_HEAD,
-	 * MERGE_HEAD, etc.
-	 */
+	else if (!starts_with(pattern, "refs/") && strcmp(pattern, "HEAD")) {
+		int i;
+
+		for (i = 0; i < ARRAY_SIZE(pseudorefs); i++)
+			if (!strcmp(pattern, pseudorefs[i]))
+				break;
+
+		if (i == ARRAY_SIZE(pseudorefs))
+			strbuf_addstr(&normalized_pattern, "refs/");
+	}
 
 	strbuf_addstr(&normalized_pattern, pattern);
 	strbuf_strip_suffix(&normalized_pattern, "/");
@@ -1547,6 +1565,33 @@ int refs_head_ref(struct ref_store *refs, each_ref_fn fn, void *cb_data)
 int head_ref(each_ref_fn fn, void *cb_data)
 {
 	return refs_head_ref(get_main_ref_store(the_repository), fn, cb_data);
+}
+
+int refs_for_each_pseudoref(struct ref_store *refs,
+			    each_ref_fn fn, void *cb_data)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(pseudorefs); i++) {
+		struct object_id oid;
+		int flag;
+
+		if (refs_resolve_ref_unsafe(refs, pseudorefs[i],
+					    RESOLVE_REF_READING, &oid, &flag)) {
+			int ret = fn(pseudorefs[i], &oid, flag, cb_data);
+
+			if (ret)
+				return ret;
+		}
+	}
+
+	return 0;
+}
+
+int for_each_pseudoref(each_ref_fn fn, void *cb_data)
+{
+	return refs_for_each_pseudoref(get_main_ref_store(the_repository),
+				       fn, cb_data);
 }
 
 struct ref_iterator *refs_ref_iterator_begin(

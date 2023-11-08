@@ -320,6 +320,8 @@ typedef int each_repo_ref_fn(struct repository *r,
  */
 int refs_head_ref(struct ref_store *refs,
 		  each_ref_fn fn, void *cb_data);
+int refs_for_each_pseudoref(struct ref_store *refs,
+			    each_ref_fn fn, void *cb_data);
 int refs_for_each_ref(struct ref_store *refs,
 		      each_ref_fn fn, void *cb_data);
 int refs_for_each_ref_in(struct ref_store *refs, const char *prefix,
@@ -333,6 +335,9 @@ int refs_for_each_remote_ref(struct ref_store *refs,
 
 /* just iterates the head ref. */
 int head_ref(each_ref_fn fn, void *cb_data);
+
+/* iterates pseudorefs. */
+int for_each_pseudoref(each_ref_fn fn, void *cb_data);
 
 /* iterates all refs. */
 int for_each_ref(each_ref_fn fn, void *cb_data);

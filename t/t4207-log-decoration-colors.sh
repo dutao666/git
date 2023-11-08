@@ -17,7 +17,10 @@ test_expect_success setup '
 	git config color.decorate.remoteBranch red &&
 	git config color.decorate.tag "reverse bold yellow" &&
 	git config color.decorate.stash magenta &&
+	git config color.decorate.ref blue &&
+	git config color.decorate.pseudoref "bold cyan" &&
 	git config color.decorate.grafted black &&
+	git config color.decorate.symbol white &&
 	git config color.decorate.HEAD cyan &&
 
 	c_reset="<RESET>" &&
@@ -27,10 +30,14 @@ test_expect_success setup '
 	c_remoteBranch="<RED>" &&
 	c_tag="<BOLD;REVERSE;YELLOW>" &&
 	c_stash="<MAGENTA>" &&
+	c_ref="<BLUE>" &&
+	c_pseudoref="<BOLD;CYAN>" &&
 	c_HEAD="<CYAN>" &&
 	c_grafted="<BLACK>" &&
+	c_symbol="<WHITE>" &&
 
 	test_commit A &&
+	git update-ref refs/foo A &&
 	git clone . other &&
 	(
 		cd other &&
@@ -41,7 +48,10 @@ test_expect_success setup '
 	test_commit B &&
 	git tag v1.0 &&
 	echo >>A.t &&
-	git stash save Changes to A.t
+	git stash save Changes to A.t &&
+	git reset other/main &&
+	git reset ORIG_HEAD &&
+	git revert --no-commit @~
 '
 
 cmp_filtered_decorations () {
@@ -53,20 +63,24 @@ cmp_filtered_decorations () {
 # to this test since it does not contain any decoration, hence --first-parent
 test_expect_success 'commit decorations colored correctly' '
 	cat >expect <<-EOF &&
-	${c_commit}COMMIT_ID${c_reset}${c_commit} (${c_reset}${c_HEAD}HEAD${c_reset}\
-${c_commit} -> ${c_reset}${c_branch}main${c_reset}${c_commit}, \
-${c_reset}${c_tag}tag: ${c_reset}${c_tag}v1.0${c_reset}${c_commit}, \
-${c_reset}${c_tag}tag: ${c_reset}${c_tag}B${c_reset}${c_commit})${c_reset} B
-${c_commit}COMMIT_ID${c_reset}${c_commit} (${c_reset}\
-${c_tag}tag: ${c_reset}${c_tag}A1${c_reset}${c_commit}, \
-${c_reset}${c_remoteBranch}other/main${c_reset}${c_commit})${c_reset} A1
-	${c_commit}COMMIT_ID${c_reset}${c_commit} (${c_reset}\
-${c_stash}refs/stash${c_reset}${c_commit})${c_reset} On main: Changes to A.t
-	${c_commit}COMMIT_ID${c_reset}${c_commit} (${c_reset}\
-${c_tag}tag: ${c_reset}${c_tag}A${c_reset}${c_commit})${c_reset} A
+	${c_commit}COMMIT_ID${c_reset}${c_symbol} (${c_reset}${c_HEAD}HEAD${c_reset}\
+${c_symbol} -> ${c_reset}${c_branch}main${c_reset}${c_symbol}, ${c_reset}\
+${c_tag}tag: ${c_reset}${c_tag}v1.0${c_reset}${c_symbol}, ${c_reset}\
+${c_tag}tag: ${c_reset}${c_tag}B${c_reset}${c_symbol})${c_reset} B
+${c_commit}COMMIT_ID${c_reset}${c_symbol} (${c_reset}\
+${c_pseudoref}ORIG_HEAD${c_reset}${c_symbol}, ${c_reset}\
+${c_tag}tag: ${c_reset}${c_tag}A1${c_reset}${c_symbol}, ${c_reset}\
+${c_remoteBranch}other/main${c_reset}${c_symbol})${c_reset} A1
+	${c_commit}COMMIT_ID${c_reset}${c_symbol} (${c_reset}\
+${c_stash}refs/stash${c_reset}${c_symbol})${c_reset} On main: Changes to A.t
+	${c_commit}COMMIT_ID${c_reset}${c_symbol} (${c_reset}\
+${c_pseudoref}REVERT_HEAD${c_reset}${c_symbol}, ${c_reset}\
+${c_tag}tag: ${c_reset}${c_tag}A${c_reset}${c_symbol}, ${c_reset}\
+${c_ref}refs/foo${c_reset}${c_symbol})${c_reset} A
 	EOF
 
-	git log --first-parent --no-abbrev --decorate --oneline --color=always --all >actual &&
+	git log --first-parent --no-abbrev --decorate --color=always \
+		--decorate-refs-exclude=FETCH_HEAD --oneline --all >actual &&
 	cmp_filtered_decorations
 '
 
@@ -84,14 +98,14 @@ test_expect_success 'test coloring with replace-objects' '
 	git replace HEAD~1 HEAD~2 &&
 
 	cat >expect <<-EOF &&
-	${c_commit}COMMIT_ID${c_reset}${c_commit} (${c_reset}${c_HEAD}HEAD${c_reset}\
-${c_commit} -> ${c_reset}${c_branch}main${c_reset}${c_commit}, \
-${c_reset}${c_tag}tag: ${c_reset}${c_tag}D${c_reset}${c_commit})${c_reset} D
-	${c_commit}COMMIT_ID${c_reset}${c_commit} (${c_reset}\
-${c_tag}tag: ${c_reset}${c_tag}C${c_reset}${c_commit}, \
-${c_reset}${c_grafted}replaced${c_reset}${c_commit})${c_reset} B
-	${c_commit}COMMIT_ID${c_reset}${c_commit} (${c_reset}\
-${c_tag}tag: ${c_reset}${c_tag}A${c_reset}${c_commit})${c_reset} A
+	${c_commit}COMMIT_ID${c_reset}${c_symbol} (${c_reset}${c_HEAD}HEAD${c_reset}\
+${c_symbol} -> ${c_reset}${c_branch}main${c_reset}${c_symbol}, ${c_reset}\
+${c_tag}tag: ${c_reset}${c_tag}D${c_reset}${c_symbol})${c_reset} D
+	${c_commit}COMMIT_ID${c_reset}${c_symbol} (${c_reset}\
+${c_tag}tag: ${c_reset}${c_tag}C${c_reset}${c_symbol}, ${c_reset}\
+${c_grafted}replaced${c_reset}${c_symbol})${c_reset} B
+	${c_commit}COMMIT_ID${c_reset}${c_symbol} (${c_reset}\
+${c_tag}tag: ${c_reset}${c_tag}A${c_reset}${c_symbol})${c_reset} A
 EOF
 
 	git log --first-parent --no-abbrev --decorate --oneline --color=always HEAD >actual &&
@@ -110,15 +124,15 @@ test_expect_success 'test coloring with grafted commit' '
 	git replace --graft HEAD HEAD~2 &&
 
 	cat >expect <<-EOF &&
-	${c_commit}COMMIT_ID${c_reset}${c_commit} (${c_reset}${c_HEAD}HEAD${c_reset}\
-${c_commit} -> ${c_reset}${c_branch}main${c_reset}${c_commit}, \
-${c_reset}${c_tag}tag: ${c_reset}${c_tag}D${c_reset}${c_commit}, \
-${c_reset}${c_grafted}replaced${c_reset}${c_commit})${c_reset} D
-	${c_commit}COMMIT_ID${c_reset}${c_commit} (${c_reset}\
-${c_tag}tag: ${c_reset}${c_tag}v1.0${c_reset}${c_commit}, \
-${c_reset}${c_tag}tag: ${c_reset}${c_tag}B${c_reset}${c_commit})${c_reset} B
-	${c_commit}COMMIT_ID${c_reset}${c_commit} (${c_reset}\
-${c_tag}tag: ${c_reset}${c_tag}A${c_reset}${c_commit})${c_reset} A
+	${c_commit}COMMIT_ID${c_reset}${c_symbol} (${c_reset}${c_HEAD}HEAD${c_reset}\
+${c_symbol} -> ${c_reset}${c_branch}main${c_reset}${c_symbol}, ${c_reset}\
+${c_tag}tag: ${c_reset}${c_tag}D${c_reset}${c_symbol}, ${c_reset}\
+${c_grafted}replaced${c_reset}${c_symbol})${c_reset} D
+	${c_commit}COMMIT_ID${c_reset}${c_symbol} (${c_reset}\
+${c_tag}tag: ${c_reset}${c_tag}v1.0${c_reset}${c_symbol}, ${c_reset}\
+${c_tag}tag: ${c_reset}${c_tag}B${c_reset}${c_symbol})${c_reset} B
+	${c_commit}COMMIT_ID${c_reset}${c_symbol} (${c_reset}\
+${c_tag}tag: ${c_reset}${c_tag}A${c_reset}${c_symbol})${c_reset} A
 	EOF
 
 	git log --first-parent --no-abbrev --decorate --oneline --color=always HEAD >actual &&

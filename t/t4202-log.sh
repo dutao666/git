@@ -927,7 +927,7 @@ test_expect_success 'multiple decorate-refs' '
 test_expect_success 'decorate-refs-exclude with glob' '
 	cat >expect.decorate <<-\EOF &&
 	Merge-tag-reach (HEAD -> main)
-	Merge-tags-octopus-a-and-octopus-b
+	Merge-tags-octopus-a-and-octopus-b (ORIG_HEAD)
 	seventh (tag: seventh)
 	octopus-b (tag: octopus-b)
 	octopus-a (tag: octopus-a)
@@ -944,7 +944,7 @@ test_expect_success 'decorate-refs-exclude with glob' '
 test_expect_success 'decorate-refs-exclude without globs' '
 	cat >expect.decorate <<-\EOF &&
 	Merge-tag-reach (HEAD -> main)
-	Merge-tags-octopus-a-and-octopus-b
+	Merge-tags-octopus-a-and-octopus-b (ORIG_HEAD)
 	seventh (tag: seventh)
 	octopus-b (tag: octopus-b, octopus-b)
 	octopus-a (tag: octopus-a, octopus-a)
@@ -961,7 +961,7 @@ test_expect_success 'decorate-refs-exclude without globs' '
 test_expect_success 'multiple decorate-refs-exclude' '
 	cat >expect.decorate <<-\EOF &&
 	Merge-tag-reach (HEAD -> main)
-	Merge-tags-octopus-a-and-octopus-b
+	Merge-tags-octopus-a-and-octopus-b (ORIG_HEAD)
 	seventh (tag: seventh)
 	octopus-b (tag: octopus-b)
 	octopus-a (tag: octopus-a)
@@ -1022,10 +1022,12 @@ test_expect_success 'decorate-refs-exclude and simplify-by-decoration' '
 	EOF
 	git log -n6 --decorate=short --pretty="tformat:%f%d" \
 		--decorate-refs-exclude="*octopus*" \
+		--decorate-refs-exclude="ORIG_HEAD" \
 		--simplify-by-decoration >actual &&
 	test_cmp expect.decorate actual &&
-	git -c log.excludeDecoration="*octopus*" log \
-		-n6 --decorate=short --pretty="tformat:%f%d" \
+	git -c log.excludeDecoration="*octopus*" \
+	    -c log.excludeDecoration="ORIG_HEAD" \
+	    log -n6 --decorate=short --pretty="tformat:%f%d" \
 		--simplify-by-decoration >actual &&
 	test_cmp expect.decorate actual
 '
@@ -1067,9 +1069,10 @@ test_expect_success 'decorate-refs and simplify-by-decoration without output' '
 	test_cmp expect actual
 '
 
-test_expect_success 'decorate-refs-exclude HEAD' '
+test_expect_success 'decorate-refs-exclude HEAD ORIG_HEAD' '
 	git log --decorate=full --oneline \
-		--decorate-refs-exclude="HEAD" >actual &&
+		--decorate-refs-exclude="HEAD" \
+		--decorate-refs-exclude="ORIG_HEAD" >actual &&
 	! grep HEAD actual
 '
 
@@ -1107,7 +1110,7 @@ test_expect_success '--clear-decorations overrides defaults' '
 
 	cat >expect.all <<-\EOF &&
 	Merge-tag-reach (HEAD -> refs/heads/main)
-	Merge-tags-octopus-a-and-octopus-b
+	Merge-tags-octopus-a-and-octopus-b (ORIG_HEAD)
 	seventh (tag: refs/tags/seventh)
 	octopus-b (tag: refs/tags/octopus-b, refs/heads/octopus-b)
 	octopus-a (tag: refs/tags/octopus-a, refs/heads/octopus-a)
@@ -1139,7 +1142,7 @@ test_expect_success '--clear-decorations clears previous exclusions' '
 	cat >expect.all <<-\EOF &&
 	Merge-tag-reach (HEAD -> refs/heads/main)
 	reach (tag: refs/tags/reach, refs/heads/reach)
-	Merge-tags-octopus-a-and-octopus-b
+	Merge-tags-octopus-a-and-octopus-b (ORIG_HEAD)
 	octopus-b (tag: refs/tags/octopus-b, refs/heads/octopus-b)
 	octopus-a (tag: refs/tags/octopus-a, refs/heads/octopus-a)
 	seventh (tag: refs/tags/seventh)

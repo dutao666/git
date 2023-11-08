@@ -74,10 +74,34 @@ color.diff.<slot>::
 	`oldBold`, and `newBold` (see linkgit:git-range-diff[1] for details).
 
 color.decorate.<slot>::
-	Use customized color for 'git log --decorate' output.  `<slot>` is one
-	of `branch`, `remoteBranch`, `tag`, `stash` or `HEAD` for local
-	branches, remote-tracking branches, tags, stash and HEAD, respectively
-	and `grafted` for grafted commits.
+	Use customized color for the output of 'git log --decorate' as well as
+	the `%d`, `%D` and `%(decorate)` placeholders in custom log formats,
+	whereby `<slot>` specifies which decoration elements the color applies
+	to:
++
+--
+`HEAD`;;
+	the current HEAD
+`branch`;;
+	local branches
+`remoteBranch`;;
+	remote-tracking branches
+`tag`;;
+	lightweight and annotated tags
+`stash`;;
+	the stash ref
+`ref`;;
+	any other refs (not shown by default)
+`pseudoref`;;
+	pseudorefs such as ORIG_HEAD or MERGE_HEAD (not shown by default)
+`grafted`;;
+	grafted and replaced commits
+`symbol`;;
+	punctuation symbols surrounding the other elements
+--
++
+(Variable `log.initialDecorationSet` or linkgit:git-log[1] option
+`--clear-decorations` can be used to show all refs and pseudorefs.)
 
 color.grep::
 	When set to `always`, always highlight matches.  When `false` (or

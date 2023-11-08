@@ -34,13 +34,16 @@ static int decoration_loaded;
 static int decoration_flags;
 
 static char decoration_colors[][COLOR_MAXLEN] = {
-	GIT_COLOR_RESET,
-	GIT_COLOR_BOLD_GREEN,	/* REF_LOCAL */
-	GIT_COLOR_BOLD_RED,	/* REF_REMOTE */
-	GIT_COLOR_BOLD_YELLOW,	/* REF_TAG */
-	GIT_COLOR_BOLD_MAGENTA,	/* REF_STASH */
-	GIT_COLOR_BOLD_CYAN,	/* REF_HEAD */
-	GIT_COLOR_BOLD_BLUE,	/* GRAFTED */
+	[DECORATION_NONE]	= GIT_COLOR_RESET,
+	[DECORATION_REF_LOCAL]	= GIT_COLOR_BOLD_GREEN,
+	[DECORATION_REF_REMOTE]	= GIT_COLOR_BOLD_RED,
+	[DECORATION_REF_TAG]	= GIT_COLOR_BOLD_YELLOW,
+	[DECORATION_REF_STASH]	= GIT_COLOR_BOLD_MAGENTA,
+	[DECORATION_REF]	= GIT_COLOR_BOLD_MAGENTA,
+	[DECORATION_REF_HEAD]	= GIT_COLOR_BOLD_CYAN,
+	[DECORATION_REF_PSEUDO]	= GIT_COLOR_BOLD_CYAN,
+	[DECORATION_GRAFTED]	= GIT_COLOR_BOLD_BLUE,
+	[DECORATION_SYMBOL]	= GIT_COLOR_NIL,
 };
 
 static const char *color_decorate_slots[] = {
@@ -48,8 +51,11 @@ static const char *color_decorate_slots[] = {
 	[DECORATION_REF_REMOTE] = "remoteBranch",
 	[DECORATION_REF_TAG]	= "tag",
 	[DECORATION_REF_STASH]	= "stash",
+	[DECORATION_REF]	= "ref",
 	[DECORATION_REF_HEAD]	= "HEAD",
+	[DECORATION_REF_PSEUDO]	= "pseudoref",
 	[DECORATION_GRAFTED]	= "grafted",
+	[DECORATION_SYMBOL]	= "symbol",
 };
 
 static const char *decorate_get_color(int decorate_use_color, enum decoration_type ix)
@@ -149,7 +155,7 @@ static int add_ref_decoration(const char *refname, const struct object_id *oid,
 	int i;
 	struct object *obj;
 	enum object_type objtype;
-	enum decoration_type deco_type = DECORATION_NONE;
+	enum decoration_type deco_type = DECORATION_REF;
 	struct decoration_filter *filter = (struct decoration_filter *)cb_data;
 	const char *git_replace_ref_base = ref_namespace[NAMESPACE_REPLACE].ref;
 
@@ -204,6 +210,27 @@ static int add_ref_decoration(const char *refname, const struct object_id *oid,
 	return 0;
 }
 
+static int add_pseudoref_decoration(const char *refname,
+				    const struct object_id *oid,
+				    int flags UNUSED,
+				    void *cb_data)
+{
+	struct object *obj;
+	enum object_type objtype;
+	struct decoration_filter *filter = (struct decoration_filter *)cb_data;
+
+	if (filter && !ref_filter_match(refname, filter))
+		return 0;
+
+	objtype = oid_object_info(the_repository, oid, NULL);
+	if (objtype < 0)
+		return 0;
+
+	obj = lookup_object_by_type(the_repository, oid, objtype);
+	add_name_decoration(DECORATION_REF_PSEUDO, refname, obj);
+	return 0;
+}
+
 static int add_graft_decoration(const struct commit_graft *graft,
 				void *cb_data UNUSED)
 {
@@ -232,6 +259,7 @@ void load_ref_decorations(struct decoration_filter *filter, int flags)
 		decoration_loaded = 1;
 		decoration_flags = flags;
 		for_each_ref(add_ref_decoration, filter);
+		for_each_pseudoref(add_pseudoref_decoration, filter);
 		head_ref(add_ref_decoration, filter);
 		for_each_commit_graft(add_graft_decoration, filter);
 	}
@@ -312,7 +340,7 @@ void format_decorations(struct strbuf *sb,
 {
 	const struct name_decoration *decoration;
 	const struct name_decoration *current_and_HEAD;
-	const char *color_commit, *color_reset;
+	const char *color_symbol, *color_reset;
 
 	const char *prefix = " (";
 	const char *suffix = ")";
@@ -337,7 +365,10 @@ void format_decorations(struct strbuf *sb,
 			tag = opts->tag;
 	}
 
-	color_commit = diff_get_color(use_color, DIFF_COMMIT);
+	color_symbol = decorate_get_color(use_color, DECORATION_SYMBOL);
+	if (color_is_nil(color_symbol))
+		color_symbol = diff_get_color(use_color, DIFF_COMMIT);
+
 	color_reset = decorate_get_color(use_color, DECORATION_NONE);
 
 	current_and_HEAD = current_pointed_by_HEAD(decoration);
@@ -352,7 +383,7 @@ void format_decorations(struct strbuf *sb,
 				decorate_get_color(use_color, decoration->type);
 
 			if (*prefix) {
-				strbuf_addstr(sb, color_commit);
+				strbuf_addstr(sb, color_symbol);
 				strbuf_addstr(sb, prefix);
 				strbuf_addstr(sb, color_reset);
 			}
@@ -369,7 +400,7 @@ void format_decorations(struct strbuf *sb,
 
 			if (current_and_HEAD &&
 			    decoration->type == DECORATION_REF_HEAD) {
-				strbuf_addstr(sb, color_commit);
+				strbuf_addstr(sb, color_symbol);
 				strbuf_addstr(sb, pointer);
 				strbuf_addstr(sb, color_reset);
 				strbuf_addstr(sb, decorate_get_color(use_color, current_and_HEAD->type));
@@ -382,7 +413,7 @@ void format_decorations(struct strbuf *sb,
 		decoration = decoration->next;
 	}
 	if (*suffix) {
-		strbuf_addstr(sb, color_commit);
+		strbuf_addstr(sb, color_symbol);
 		strbuf_addstr(sb, suffix);
 		strbuf_addstr(sb, color_reset);
 	}

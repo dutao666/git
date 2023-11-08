@@ -11,6 +11,7 @@
 #include "diagnose.h"
 #include "object-file.h"
 #include "setup.h"
+#include "dir.h"
 
 static void get_system_info(struct strbuf *sys_info)
 {
@@ -97,20 +98,41 @@ static void get_header(struct strbuf *buf, const char *title)
 	strbuf_addf(buf, "\n\n[%s]\n", title);
 }
 
+static void build_path(struct strbuf *buf, const char *dir_path,
+		       const char *prefix, const char *suffix,
+		       time_t t, int *i, const char *ext)
+{
+	struct tm tm;
+
+	strbuf_reset(buf);
+	strbuf_addstr(buf, dir_path);
+	strbuf_complete(buf, '/');
+
+	strbuf_addstr(buf, prefix);
+	strbuf_addftime(buf, suffix, localtime_r(&t, &tm), 0, 0);
+
+	if (*i > 0)
+		strbuf_addf(buf, "+%d", *i);
+
+	strbuf_addstr(buf, ext);
+
+	(*i)++;
+}
+
 int cmd_bugreport(int argc, const char **argv, const char *prefix)
 {
 	struct strbuf buffer = STRBUF_INIT;
 	struct strbuf report_path = STRBUF_INIT;
 	int report = -1;
 	time_t now = time(NULL);
-	struct tm tm;
 	enum diagnose_mode diagnose = DIAGNOSE_NONE;
 	char *option_output = NULL;
-	char *option_suffix = "%Y-%m-%d-%H%M";
+	char *option_suffix = "";
+	int option_suffix_is_from_user = 0;
 	const char *user_relative_path = NULL;
 	char *prefixed_filename;
-	size_t output_path_len;
 	int ret;
+	int i = 0;
 
 	const struct option bugreport_options[] = {
 		OPT_CALLBACK_F(0, "diagnose", &diagnose, N_("mode"),
@@ -131,16 +153,16 @@ int cmd_bugreport(int argc, const char **argv, const char *prefix)
 		usage(bugreport_usage[0]);
 	}
 
+	if (!strlen(option_suffix))
+		option_suffix = "%Y-%m-%d-%H%M";
+	else
+		option_suffix_is_from_user = 1;
+
 	/* Prepare the path to put the result */
 	prefixed_filename = prefix_filename(prefix,
 					    option_output ? option_output : "");
-	strbuf_addstr(&report_path, prefixed_filename);
-	strbuf_complete(&report_path, '/');
-	output_path_len = report_path.len;
-
-	strbuf_addstr(&report_path, "git-bugreport-");
-	strbuf_addftime(&report_path, option_suffix, localtime_r(&now, &tm), 0, 0);
-	strbuf_addstr(&report_path, ".txt");
+	build_path(&report_path, prefixed_filename, "git-bugreport-",
+		   option_suffix, now, &i, ".txt");
 
 	switch (safe_create_leading_directories(report_path.buf)) {
 	case SCLD_OK:
@@ -149,20 +171,6 @@ int cmd_bugreport(int argc, const char **argv, const char *prefix)
 	default:
 		die(_("could not create leading directories for '%s'"),
 		    report_path.buf);
-	}
-
-	/* Prepare diagnostics, if requested */
-	if (diagnose != DIAGNOSE_NONE) {
-		struct strbuf zip_path = STRBUF_INIT;
-		strbuf_add(&zip_path, report_path.buf, output_path_len);
-		strbuf_addstr(&zip_path, "git-diagnostics-");
-		strbuf_addftime(&zip_path, option_suffix, localtime_r(&now, &tm), 0, 0);
-		strbuf_addstr(&zip_path, ".zip");
-
-		if (create_diagnostics_archive(&zip_path, diagnose))
-			die_errno(_("unable to create diagnostics archive %s"), zip_path.buf);
-
-		strbuf_release(&zip_path);
 	}
 
 	/* Prepare the report contents */
@@ -174,13 +182,36 @@ int cmd_bugreport(int argc, const char **argv, const char *prefix)
 	get_header(&buffer, _("Enabled Hooks"));
 	get_populated_hooks(&buffer, !startup_info->have_repository);
 
-	/* fopen doesn't offer us an O_EXCL alternative, except with glibc. */
-	report = xopen(report_path.buf, O_CREAT | O_EXCL | O_WRONLY, 0666);
+	again:
+		/* fopen doesn't offer us an O_EXCL alternative, except with glibc. */
+		report = open(report_path.buf, O_CREAT | O_EXCL | O_WRONLY, 0666);
+		if (report < 0 && errno == EEXIST && !option_suffix_is_from_user) {
+			build_path(&report_path, prefixed_filename,
+				   "git-bugreport-", option_suffix, now, &i,
+				   ".txt");
+			goto again;
+		} else if (report < 0) {
+			die_errno(_("unable to open '%s'"), report_path.buf);
+		}
 
 	if (write_in_full(report, buffer.buf, buffer.len) < 0)
 		die_errno(_("unable to write to %s"), report_path.buf);
 
 	close(report);
+
+	/* Prepare diagnostics, if requested */
+	if (diagnose != DIAGNOSE_NONE) {
+		struct strbuf zip_path = STRBUF_INIT;
+		i--; /* Undo last increment to match zipfile suffix to bugreport */
+		build_path(&zip_path, prefixed_filename, "git-diagnostics-",
+			   option_suffix, now, &i, ".zip");
+
+		if (create_diagnostics_archive(&zip_path, diagnose))
+			die_errno(_("unable to create diagnostics archive %s"),
+				  zip_path.buf);
+
+		strbuf_release(&zip_path);
+	}
 
 	/*
 	 * We want to print the path relative to the user, but we still need the

@@ -229,4 +229,18 @@ extern const char *excludes_file;
  */
 int print_sha1_ellipsis(void);
 
+/**
+ * Add a formatted string prepended by a comment character and a
+ * blank to the buffer.
+ */
+__attribute__((format (printf, 2, 3)))
+void strbuf_commented_addf(struct strbuf *sb, const char *fmt, ...);
+
+/**
+ * Add a NUL-terminated string to the buffer. Each line will be prepended
+ * by a comment character and a blank.
+ */
+void strbuf_add_commented_lines(struct strbuf *out,
+				const char *buf, size_t size);
+
 #endif

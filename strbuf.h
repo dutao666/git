@@ -283,15 +283,6 @@ void strbuf_splice(struct strbuf *sb, size_t pos, size_t len,
 		   const void *data, size_t data_len);
 
 /**
- * Add a NUL-terminated string to the buffer. Each line will be prepended
- * by a comment character and a blank.
- */
-void strbuf_add_commented_lines(struct strbuf *out,
-				const char *buf, size_t size,
-				char comment_line_char);
-
-
-/**
  * Add data of given length to the buffer.
  */
 void strbuf_add(struct strbuf *sb, const void *data, size_t len);
@@ -373,13 +364,6 @@ void strbuf_humanise_rate(struct strbuf *buf, off_t bytes);
  */
 __attribute__((format (printf,2,3)))
 void strbuf_addf(struct strbuf *sb, const char *fmt, ...);
-
-/**
- * Add a formatted string prepended by a comment character and a
- * blank to the buffer.
- */
-__attribute__((format (printf, 3, 4)))
-void strbuf_commented_addf(struct strbuf *sb, char comment_line_char, const char *fmt, ...);
 
 __attribute__((format (printf,2,0)))
 void strbuf_vaddf(struct strbuf *sb, const char *fmt, va_list ap);
@@ -602,6 +586,10 @@ void strbuf_add_lines(struct strbuf *sb,
 		      const char *prefix,
 		      const char *buf,
 		      size_t size);
+void strbuf_add_lines_varied_prefix(struct strbuf *sb,
+				    const char *default_prefix,
+				    const char *tab_nl_prefix,
+				    const char *buf, size_t size);
 
 /**
  * Append s to sb, with the characters '<', '>', '&' and '"' converted

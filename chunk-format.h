@@ -17,7 +17,8 @@ struct chunkfile;
  *
  * If reading a file, use a NULL 'struct hashfile *' and then call
  * read_table_of_contents(). Supply the memory-mapped data to the
- * pair_chunk() or read_chunk() methods, as appropriate.
+ * pair_chunk(), pair_chunk_expect(), or read_chunk() methods, as
+ * appropriate.
  *
  * DO NOT MIX THESE MODES. Use different 'struct chunkfile' instances
  * for reading and writing.
@@ -53,6 +54,15 @@ int pair_chunk(struct chunkfile *cf,
 	       uint32_t chunk_id,
 	       const unsigned char **p,
 	       size_t *size);
+
+/*
+ * Similar to 'pair_chunk', but used for callers who have an expected
+ * size for the given 'chunk_id' in advance.
+ */
+int pair_chunk_expect(struct chunkfile *cf,
+		      uint32_t chunk_id,
+		      const unsigned char **p,
+		      size_t expected_size);
 
 typedef int (*chunk_read_fn)(const unsigned char *chunk_start,
 			     size_t chunk_size, void *data);

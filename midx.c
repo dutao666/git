@@ -61,46 +61,6 @@ void get_midx_rev_filename(struct strbuf *out, struct multi_pack_index *m)
 	strbuf_addf(out, "-%s.rev", hash_to_hex(get_midx_checksum(m)));
 }
 
-static int midx_read_oid_fanout(const unsigned char *chunk_start,
-				size_t chunk_size, void *data)
-{
-	struct multi_pack_index *m = data;
-	m->chunk_oid_fanout = (uint32_t *)chunk_start;
-
-	if (chunk_size != 4 * 256) {
-		error(_("multi-pack-index OID fanout is of the wrong size"));
-		return 1;
-	}
-	m->num_objects = ntohl(m->chunk_oid_fanout[255]);
-	return 0;
-}
-
-static int midx_read_oid_lookup(const unsigned char *chunk_start,
-				size_t chunk_size, void *data)
-{
-	struct multi_pack_index *m = data;
-	m->chunk_oid_lookup = chunk_start;
-
-	if (chunk_size != st_mult(m->hash_len, m->num_objects)) {
-		error(_("multi-pack-index OID lookup chunk is the wrong size"));
-		return 1;
-	}
-	return 0;
-}
-
-static int midx_read_object_offsets(const unsigned char *chunk_start,
-				    size_t chunk_size, void *data)
-{
-	struct multi_pack_index *m = data;
-	m->chunk_object_offsets = chunk_start;
-
-	if (chunk_size != st_mult(m->num_objects, MIDX_CHUNK_OFFSET_WIDTH)) {
-		error(_("multi-pack-index object offset chunk is the wrong size"));
-		return 1;
-	}
-	return 0;
-}
-
 struct multi_pack_index *load_multi_pack_index(const char *object_dir, int local)
 {
 	struct multi_pack_index *m = NULL;
@@ -173,12 +133,24 @@ struct multi_pack_index *load_multi_pack_index(const char *object_dir, int local
 
 	if (pair_chunk(cf, MIDX_CHUNKID_PACKNAMES, &m->chunk_pack_names, &m->chunk_pack_names_len))
 		die(_("multi-pack-index required pack-name chunk missing or corrupted"));
-	if (read_chunk(cf, MIDX_CHUNKID_OIDFANOUT, midx_read_oid_fanout, m))
+	if (pair_chunk_expect(cf, MIDX_CHUNKID_OIDFANOUT,
+			      (const unsigned char **)&m->chunk_oid_fanout,
+			      256 * sizeof(uint32_t))) {
+		error(_("multi-pack-index OID fanout is of the wrong size"));
 		die(_("multi-pack-index required OID fanout chunk missing or corrupted"));
-	if (read_chunk(cf, MIDX_CHUNKID_OIDLOOKUP, midx_read_oid_lookup, m))
+	}
+	m->num_objects = ntohl(m->chunk_oid_fanout[255]);
+	if (pair_chunk_expect(cf, MIDX_CHUNKID_OIDLOOKUP, &m->chunk_oid_lookup,
+			      st_mult(m->hash_len, m->num_objects))) {
+		error(_("multi-pack-index OID lookup chunk is the wrong size"));
 		die(_("multi-pack-index required OID lookup chunk missing or corrupted"));
-	if (read_chunk(cf, MIDX_CHUNKID_OBJECTOFFSETS, midx_read_object_offsets, m))
+	}
+	if (pair_chunk_expect(cf, MIDX_CHUNKID_OBJECTOFFSETS,
+			      &m->chunk_object_offsets,
+			      st_mult(m->num_objects, MIDX_CHUNK_OFFSET_WIDTH))) {
+		error(_("multi-pack-index object offset chunk is the wrong size"));
 		die(_("multi-pack-index required object offsets chunk missing or corrupted"));
+	}
 
 	pair_chunk(cf, MIDX_CHUNKID_LARGEOFFSETS, &m->chunk_large_offsets,
 		   &m->chunk_large_offsets_len);

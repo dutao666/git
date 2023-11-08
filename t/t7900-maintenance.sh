@@ -55,6 +55,8 @@ test_expect_success 'run [--auto|--quiet]' '
 '
 
 test_expect_success 'maintenance.auto config option' '
+	rm -rf .git &&
+	git init &&
 	GIT_TRACE2_EVENT="$(pwd)/default" git commit --quiet --allow-empty -m 1 &&
 	test_subcommand git maintenance run --auto --quiet <default &&
 	GIT_TRACE2_EVENT="$(pwd)/true" \
@@ -145,6 +147,12 @@ test_expect_success 'run --task=prefetch with no remotes' '
 '
 
 test_expect_success 'prefetch multiple remotes' '
+	test_when_finished rm -r clone1 &&
+	test_when_finished rm -r clone2 &&
+	test_when_finished git remote remove remote1 &&
+	test_when_finished git remote remove remote2 &&
+	test_when_finished git tag --delete one &&
+	test_when_finished git tag --delete two &&
 	git clone . clone1 &&
 	git clone . clone2 &&
 	git remote add remote1 "file://$(pwd)/clone1" &&
@@ -176,6 +184,22 @@ test_expect_success 'prefetch multiple remotes' '
 '
 
 test_expect_success 'loose-objects task' '
+	test_when_finished rm -r clone1 &&
+	test_when_finished rm -r clone2 &&
+	test_when_finished git remote remove remote1 &&
+	test_when_finished git remote remove remote2 &&
+	test_when_finished git tag --delete one &&
+	test_when_finished git tag --delete two &&
+	git clone . clone1 &&
+	git clone . clone2 &&
+	git remote add remote1 "file://$(pwd)/clone1" &&
+	git remote add remote2 "file://$(pwd)/clone2" &&
+	git -C clone1 switch -c one &&
+	git -C clone2 switch -c two &&
+	test_commit -C clone1 one &&
+	test_commit -C clone2 two &&
+	git fetch --all &&
+
 	# Repack everything so we know the state of the object dir
 	git repack -adk &&
 
@@ -236,13 +260,15 @@ test_expect_success 'maintenance.loose-objects.auto' '
 	test_subcommand git prune-packed --quiet <trace-loC
 '
 
-test_expect_success 'incremental-repack task' '
+test_expect_success 'setup packfile' '
 	packDir=.git/objects/pack &&
 	for i in $(test_seq 1 5)
 	do
 		test_commit $i || return 1
-	done &&
+	done
+'
 
+test_expect_success 'incremental-repack task' '
 	# Create three disjoint pack-files with size BIG, small, small.
 	echo HEAD~2 | git pack-objects --revs $packDir/test-1 &&
 	test_tick &&
@@ -367,6 +393,7 @@ test_expect_success 'maintenance.incremental-repack.auto (when config is unset)'
 '
 
 test_expect_success 'pack-refs task' '
+	test_commit message &&
 	for n in $(test_seq 1 5)
 	do
 		git branch -f to-pack/$n HEAD || return 1
@@ -386,14 +413,16 @@ test_expect_success 'invalid --schedule value' '
 	test_grep "unrecognized --schedule" err
 '
 
-test_expect_success '--schedule inheritance weekly -> daily -> hourly' '
+test_expect_success 'setup for inheritance' '
 	git config maintenance.loose-objects.enabled true &&
 	git config maintenance.loose-objects.schedule hourly &&
 	git config maintenance.commit-graph.enabled true &&
 	git config maintenance.commit-graph.schedule daily &&
 	git config maintenance.incremental-repack.enabled true &&
-	git config maintenance.incremental-repack.schedule weekly &&
+	git config maintenance.incremental-repack.schedule weekly
+'
 
+test_expect_success '--schedule inheritance weekly -> daily -> hourly' '
 	GIT_TRACE2_EVENT="$(pwd)/hourly.txt" \
 		git maintenance run --schedule=hourly 2>/dev/null &&
 	test_subcommand git prune-packed --quiet <hourly.txt &&
@@ -589,6 +618,7 @@ test_expect_success 'start --scheduler=<scheduler>' '
 '
 
 test_expect_success 'start from empty cron table' '
+	test_when_finished git maintenance unregister &&
 	GIT_TEST_MAINT_SCHEDULER="crontab:test-tool crontab cron.txt" git maintenance start --scheduler=crontab &&
 
 	# start registers the repo
@@ -600,6 +630,8 @@ test_expect_success 'start from empty cron table' '
 '
 
 test_expect_success 'stop from existing schedule' '
+	test_when_finished git maintenance unregister &&
+	git maintenance register &&
 	GIT_TEST_MAINT_SCHEDULER="crontab:test-tool crontab cron.txt" git maintenance stop &&
 
 	# stop does not unregister the repo
@@ -610,9 +642,12 @@ test_expect_success 'stop from existing schedule' '
 	test_must_be_empty cron.txt
 '
 
-test_expect_success 'start preserves existing schedule' '
+test_expect_success 'setup important information for schedule' '
 	echo "Important information!" >cron.txt &&
-	GIT_TEST_MAINT_SCHEDULER="crontab:test-tool crontab cron.txt" git maintenance start --scheduler=crontab &&
+	GIT_TEST_MAINT_SCHEDULER="crontab:test-tool crontab cron.txt" git maintenance start --scheduler=crontab
+'
+
+test_expect_success 'start preserves existing schedule' '
 	grep "Important information!" cron.txt
 '
 
@@ -679,6 +714,9 @@ test_expect_success 'start and stop macOS maintenance' '
 '
 
 test_expect_success 'use launchctl list to prevent extra work' '
+	write_script print-args <<-\EOF &&
+	echo $* | sed "s:gui/[0-9][0-9]*:gui/[UID]:" >>args
+	EOF
 	# ensure we are registered
 	GIT_TEST_MAINT_SCHEDULER=launchctl:./print-args git maintenance start --scheduler=launchctl &&
 
@@ -775,6 +813,7 @@ test_expect_success 'start and stop Linux/systemd maintenance' '
 '
 
 test_expect_success 'start and stop when several schedulers are available' '
+	pfx=$(cd "$HOME" && pwd) &&
 	write_script print-args <<-\EOF &&
 	printf "%s\n" "$*" | sed "s:gui/[0-9][0-9]*:gui/[UID]:; s:\(schtasks /create .* /xml\).*:\1:;" >>args
 	EOF
